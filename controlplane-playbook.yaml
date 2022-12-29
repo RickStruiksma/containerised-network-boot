@@ -1,0 +1,53 @@
+---
+- name: configure k8s controlplane
+  hosts: controlplane
+  become: yes
+  tasks:
+    - name: create /etc/modules-load.d/containerd.conf
+      file: /etc/modules-load.d/containerd.conf
+      state: file
+    - name: set containerd.conf kernel modules
+      copy:
+        content: |
+                overlay
+                br_netfilter
+    - name: run modprobe to activate new modules
+      command: modprobe overlay br_netfilter
+    - name: create etc/sysctl.d/99-kubernetes-cri.conf
+      file:
+        path: /etc/sysctl.d/99-kubernetes-cri.conf
+        state: file
+    - name: copy kubernetes-cri settings
+      copy:
+        path: /etc/sysctl.d/99-kubernetes-cri.conf
+        content: |
+                net.bridge.bridge-nf-call-iptables = 1
+                net.ipv4.ip_forward = 1
+                net.bridge.bridge-nf-call-ip6tables = 1
+    - name: rerun sysctl to pick up changes
+      command: sysctl --system
+    - name: install containerd
+      yum:
+        name: containerd
+        state: latest
+    - name: create /etc/containerd directory
+      file:
+        path: /etc/containerd
+        state: directory
+    - name: create containerd configuration
+      command: containerd config default
+    - name: create /etc/containerd.config.toml
+      file:
+        path: /etc/containerd.config.toml
+        state: directory
+    - name: copy containerd config to file
+      copy:
+    - name: restart containerd
+      service:
+        name: containerd
+        state: restarted
+        enabled: yes
+    - name: turn off swap
+      command: swapoff -a
+
+
