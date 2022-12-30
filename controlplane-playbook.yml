@@ -1,8 +1,11 @@
 ---
-- name: configure k8s controlplane
-  hosts: controlplane
+- name: configure k8s nodes
+  hosts: all
   become: yes
   tasks:
+    - name: create kube user
+      user:
+        name: kube
     - name: create /etc/modules-load.d/containerd.conf
       file: /etc/modules-load.d/containerd.conf
       state: file
@@ -43,7 +46,7 @@
       register: containerd_config   
     - name: copy containerd config to file
       template:
-        src: ./containerd_config
+        src: ./containerd_config.j2
         dest: /etc/containerd.config.toml
     - name: restart containerd
       service:
@@ -53,19 +56,14 @@
     - name: turn off swap
       command: swapoff -a
     - name: configure k8s repository
-      copy:
-        content: |
-                [kubernetes]
-                name=Kubernetes
-                baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-\x86_64
-                enabled=1
-                gpgcheck=1
-                gpgkey=https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
-                exclude=kubelet kubeadm kubectl
+      template:
+        src: repo_config.j2
+        dest: /etc/yum.repos.d/kubernetes.repo
     - name: intall kubeadm cluster packages
       yum:
-        name: {{ "item" }}
-      loop: - kubelet
+        name: "{{ item }}"
+      loop: 
+            - kubelet
             - kubeadm
             - kubectl
     - name: start and enable kubelet
@@ -73,17 +71,33 @@
         name: kubelet
         state: started
         enabled: yes
+- name: create cluster control node
+  hosts: controlplane
+  become: yes
+  tasks:
     - name: initialize cluster
-      command: kubeadm init --pod-network-cidr 192.168.0.0/16 --kubernetes-version=
-    - name: create .kube dir in usee home
+      command: kubeadm init --pod-network-cidr 192.168.0.0/16
+    - name: create .kube dir in user home
       file:
         path: /home/kube/.kube
         state: directory
+        owner: kube
+        group: kube
     - name: copy kubernetes admin conf to .kube
       copy:
        src: /etc/kubernetes/admin.conf
        dest: /home/kube/.kube/config
        owner: kube
        group: kube
+       remote_src: true
     - name: install calico networking plugin
       command: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+    - name: create new cluster token
+      command: kubeadm token create --print-join-command
+      register: cluster_token
+- name: join nodes to cluster
+  hosts: nodes
+  become: yes
+  tasks:
+    - name: run cluster join command
+      command: "{{ cluster_token }}"
