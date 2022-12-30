@@ -6,11 +6,14 @@
     - name: create kube user
       user:
         name: kube
+        state: present
     - name: create /etc/modules-load.d/containerd.conf
-      file: /etc/modules-load.d/containerd.conf
-      state: file
+      file: 
+        path: /etc/modules-load.d/containerd.conf
+        state: touch
     - name: set containerd.conf kernel modules
       copy:
+        dest: /etc/modules-load.d/containerd.conf
         content: |
                 overlay
                 br_netfilter
@@ -19,20 +22,28 @@
     - name: create etc/sysctl.d/99-kubernetes-cri.conf
       file:
         path: /etc/sysctl.d/99-kubernetes-cri.conf
-        state: file
+        state: touch
     - name: copy kubernetes-cri settings
       copy:
-        path: /etc/sysctl.d/99-kubernetes-cri.conf
+        dest: /etc/sysctl.d/99-kubernetes-cri.conf
         content: |
                 net.bridge.bridge-nf-call-iptables = 1
                 net.ipv4.ip_forward = 1
                 net.bridge.bridge-nf-call-ip6tables = 1
     - name: rerun sysctl to pick up changes
       command: sysctl --system
+    - name: add docker-ce repo for containerd package
+      yum_repository:
+        name: docker-ce
+        description: docker-ce repo
+        baseurl: https://download.docker.com/linux/centos/$releasever/$basearch/stable 
+        gpgkey: https://download.docker.com/linux/centos/gpg
+        gpgcheck: yes
+        enabled: yes
     - name: install containerd
       yum:
-        name: containerd
-        state: latest
+        name: containerd.io
+        state: present
     - name: create /etc/containerd directory
       file:
         path: /etc/containerd
@@ -40,9 +51,9 @@
     - name: create /etc/containerd.config.toml
       file:
         path: /etc/containerd.config.toml
-        state: file
+        state: touch
     - name: create containerd default config
-      command: containerd config default
+      command: "containerd config default"
       register: containerd_config   
     - name: copy containerd config to file
       template:
@@ -62,6 +73,7 @@
     - name: intall kubeadm cluster packages
       yum:
         name: "{{ item }}"
+        state: present
       loop: 
             - kubelet
             - kubeadm
@@ -95,9 +107,12 @@
     - name: create new cluster token
       command: kubeadm token create --print-join-command
       register: cluster_token
+    - name: set token variable for access on node hosts
+      set_fact:
+        join_command = "{{ cluster_token }}"
 - name: join nodes to cluster
   hosts: nodes
   become: yes
   tasks:
     - name: run cluster join command
-      command: "{{ cluster_token }}"
+      command: "{{ join_command }}"
