@@ -34,14 +34,17 @@
       file:
         path: /etc/containerd
         state: directory
-    - name: create containerd configuration
-      command: containerd config default
     - name: create /etc/containerd.config.toml
       file:
         path: /etc/containerd.config.toml
-        state: directory
+        state: file
+    - name: create containerd default config
+      command: containerd config default
+      register: containerd_config   
     - name: copy containerd config to file
-      copy:
+      template:
+        src: ./containerd_config
+        dest: /etc/containerd.config.toml
     - name: restart containerd
       service:
         name: containerd
@@ -49,5 +52,38 @@
         enabled: yes
     - name: turn off swap
       command: swapoff -a
-
-
+    - name: configure k8s repository
+      copy:
+        content: |
+                [kubernetes]
+                name=Kubernetes
+                baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-\x86_64
+                enabled=1
+                gpgcheck=1
+                gpgkey=https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+                exclude=kubelet kubeadm kubectl
+    - name: intall kubeadm cluster packages
+      yum:
+        name: {{ "item" }}
+      loop: - kubelet
+            - kubeadm
+            - kubectl
+    - name: start and enable kubelet
+      service:
+        name: kubelet
+        state: started
+        enabled: yes
+    - name: initialize cluster
+      command: kubeadm init --pod-network-cidr 192.168.0.0/16 --kubernetes-version=
+    - name: create .kube dir in usee home
+      file:
+        path: /home/kube/.kube
+        state: directory
+    - name: copy kubernetes admin conf to .kube
+      copy:
+       src: /etc/kubernetes/admin.conf
+       dest: /home/kube/.kube/config
+       owner: kube
+       group: kube
+    - name: install calico networking plugin
+      command: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
