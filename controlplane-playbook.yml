@@ -44,25 +44,10 @@
       yum:
         name: containerd.io
         state: present
-    - name: create /etc/containerd directory
-      file:
-        path: /etc/containerd
-        state: directory
-    - name: create /etc/containerd.config.toml
-      file:
-        path: /etc/containerd.config.toml
-        state: touch
-    - name: create containerd default config
-      command: "containerd config default"
-      register: containerd_config   
-    - name: copy containerd config to file
-      template:
-        src: ./containerd_config.j2
-        dest: /etc/containerd.config.toml
     - name: restart containerd
       service:
         name: containerd
-        state: started
+        state: restarted
         enabled: yes
     - name: turn off swap
       command: swapoff -a
@@ -88,6 +73,7 @@
   become: yes
   tasks:
     - name: initialize cluster
+      become_user: kube
       command: kubeadm init --pod-network-cidr 192.168.0.0/16
     - name: create .kube dir in user home
       file:
@@ -102,9 +88,15 @@
        owner: kube
        group: kube
        remote_src: true
-    - name: install calico networking plugin
-      command: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+    - name: pull calico manifest
+      fetch:
+         src: curl https://raw.githubusercontent.com/projectcalico/calico/v3.24.5/manifests/calico.yaml -O
+         dest: /home/kube/calico.yaml
+    - name: apply calico manifest with kubectl
+      become_user: kube
+      command: kubectl apply -f calico.yaml
     - name: create new cluster token
+      become_user: kube
       command: kubeadm token create --print-join-command
       register: cluster_token
     - name: set token variable for access on node hosts
