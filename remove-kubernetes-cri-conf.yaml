@@ -1,8 +1,0 @@
----
-- hosts: all
-  become: yes
-  tasks:
-    - name: remove kubernetes-cri-conf from sysctl.d
-      file:
-        path: /etc/sysctl.d/100-kubernetes-cri.conf
-        state: absent
